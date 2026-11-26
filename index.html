@@ -1,0 +1,511 @@
+<!doctype html>
+<html lang="ko">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>졸업 학점</title>
+<meta name="description" content="민사고 수강신청 현황 파일을 넣으면 졸업 이수 학점을 바로 계산하고, 예비수강신청에서 고른 과목까지 더해 보여 주는 도구">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600&family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap">
+<style>
+/* Layout: 위에 교과 합계 한 줄(이수 + 예정), 아래 왼쪽은 교과군별 요건, 오른쪽은 학기 6칸을 골라 그 학기 과목을 보는 목록 */
+:root{
+  --bg:#ffffff; --tile:#f3f3f1; --tile-hover:#e8e8e4; --line:#e3e2de;
+  --fg:#151515; --muted:#73716b; --accent:#e03a2f; --ok:#2b8a3e;
+  --g-kor:#ef6c00; --g-math:#1c7ed6; --g-eng:#7950f2; --g-soc:#a0692e; --g-sci:#2f9e44;
+  --g-pe:#e64980; --g-art:#0b9aa8; --g-etc:#d9a400;
+  --sans:"Pretendard Variable",Pretendard,"IBM Plex Sans KR","Malgun Gothic","Apple SD Gothic Neo",system-ui,sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,"Cascadia Mono",Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#111211; --tile:#1d1e1c; --tile-hover:#272825; --line:#2c2d2a;
+    --fg:#efefec; --muted:#9b998f; --accent:#ff5b4f; --ok:#51cf66;
+    --g-kor:#ff922b; --g-math:#4dabf7; --g-eng:#9775fa; --g-soc:#c99a5b; --g-sci:#51cf66;
+    --g-pe:#f783ac; --g-art:#3bc9db; --g-etc:#fcc419;
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#111211; --tile:#1d1e1c; --tile-hover:#272825; --line:#2c2d2a;
+  --fg:#efefec; --muted:#9b998f; --accent:#ff5b4f; --ok:#51cf66;
+  --g-kor:#ff922b; --g-math:#4dabf7; --g-eng:#9775fa; --g-soc:#c99a5b; --g-sci:#51cf66;
+  --g-pe:#f783ac; --g-art:#3bc9db; --g-etc:#fcc419;
+  color-scheme:dark;
+}
+
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.45 var(--sans);-webkit-font-smoothing:antialiased}
+[hidden]{display:none!important}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--bg)}
+button{font:inherit;color:inherit}
+button:focus-visible,a:focus-visible{outline:2px solid var(--fg);outline-offset:2px}
+a{color:inherit}
+.wrap{max-width:1180px;margin-inline:auto;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.num{font-family:var(--mono);font-variant-numeric:tabular-nums}
+
+/* 머리 */
+.top{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--bg);border-bottom:1px solid var(--line)}
+.top-in{display:flex;align-items:center;gap:10px 16px;flex-wrap:wrap;padding-block:14px}
+h1{margin:0;font-size:20px;font-weight:700;letter-spacing:-.02em}
+.who{color:var(--muted);font-size:13px}
+.who b{color:var(--fg);font-weight:600;margin-right:6px}
+.top-act{margin-left:auto;display:flex;gap:6px;align-items:center}
+.btn{height:34px;padding:0 13px;border-radius:9px;border:1px solid var(--line);background:transparent;font-weight:600;font-size:13px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;text-decoration:none;white-space:nowrap}
+.btn:hover{background:var(--tile)}
+.btn.solid{background:var(--fg);color:var(--bg);border-color:var(--fg)}
+.btn.arm{color:var(--accent);border-color:var(--accent)}
+
+/* 빈 화면 */
+.drop{margin-block:48px;border:2px dashed var(--line);border-radius:18px;padding:64px 24px;display:grid;justify-items:center;gap:14px;text-align:center;transition:border-color .12s,background-color .12s}
+.drop.over,body.dragging .drop{border-color:var(--fg);background:var(--tile)}
+.drop svg{color:var(--muted)}
+.drop h2{margin:0;font-size:19px;font-weight:700;letter-spacing:-.01em}
+.drop p{margin:0;color:var(--muted);font-size:13px}
+.drop .err{color:var(--accent);font-weight:600}
+.overlay{position:fixed;inset:0;z-index:30;background:color-mix(in srgb,var(--bg) 82%,transparent);display:grid;place-items:center;font-size:20px;font-weight:700;pointer-events:none}
+
+/* 합계 */
+.hero{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,340px);gap:20px 40px;align-items:end;padding-block:28px 24px;border-bottom:1px solid var(--line)}
+.lbl{font-size:13px;color:var(--muted);font-weight:500}
+.big{display:flex;align-items:baseline;gap:8px;margin-top:4px;flex-wrap:wrap}
+.big b{font-family:var(--mono);font-size:52px;line-height:1;font-weight:600;letter-spacing:-.03em}
+.big .plus{font-family:var(--mono);font-size:24px;font-weight:600;color:var(--muted)}
+.big .of{font-family:var(--mono);font-size:22px;color:var(--muted)}
+.bar{position:relative;height:10px;border-radius:5px;background:var(--tile);overflow:hidden;margin-top:14px;display:flex}
+.bar i{display:block;height:100%}
+.bar .t{background:var(--fg)}
+.bar .p{background:repeating-linear-gradient(135deg,var(--fg) 0 2px,transparent 2px 5px);opacity:.55}
+.bar.ok .t{background:var(--ok)}
+.bar.ok .p{background:repeating-linear-gradient(135deg,var(--ok) 0 2px,transparent 2px 5px)}
+.sub{margin-top:8px;font-size:13px;color:var(--muted)}
+.sub .num{color:var(--fg);font-weight:600}
+.left .lbl{margin-bottom:8px}
+.need{display:flex;flex-wrap:wrap;gap:6px}
+.need span{display:inline-flex;align-items:baseline;gap:5px;padding:6px 11px;border-radius:999px;background:var(--tile);font-weight:600;font-size:13px}
+.need span .num{color:var(--accent)}
+.need .done{background:transparent;border:1px solid var(--ok);color:var(--ok)}
+.legend{display:flex;gap:14px;margin-top:12px;font-size:12px;color:var(--muted)}
+.legend i{display:inline-block;width:14px;height:8px;border-radius:2px;margin-right:5px;vertical-align:1px;background:var(--fg)}
+.legend i.p{background:repeating-linear-gradient(135deg,var(--fg) 0 2px,transparent 2px 5px);opacity:.55}
+
+/* 본문 두 칸 */
+.cols{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.15fr);gap:40px;padding-block:8px 56px;align-items:start}
+.h3{margin:22px 0 6px;font-size:13px;font-weight:600;color:var(--muted)}
+.req{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:4px 12px;align-items:baseline;padding-block:11px;border-bottom:1px solid var(--line)}
+.req:last-child{border-bottom:0}
+.req .nm{font-weight:600;font-size:15px;display:flex;gap:8px;align-items:baseline;min-width:0}
+.req .nm small{font-weight:400;font-size:12px;color:var(--muted)}
+.dot{display:inline-block;width:9px;height:9px;border-radius:50%;background:var(--gc);flex:none;transform:translateY(-1px)}
+.req .val{font-family:var(--mono);font-size:14px;font-variant-numeric:tabular-nums;white-space:nowrap}
+.req .val .pl{color:var(--muted)}
+.req .val .of{color:var(--muted)}
+.req .st{font-size:13px;font-weight:600;white-space:nowrap;min-width:52px;text-align:right}
+.req .st.ok{color:var(--ok)}
+.req .st.no{color:var(--accent)}
+.req .bar{grid-column:1 / -1;height:6px;margin-top:4px}
+.req .bar .t{background:var(--gc)}
+.req .bar .p{background:repeating-linear-gradient(135deg,var(--gc) 0 2px,transparent 2px 5px);opacity:.75}
+.req .bar .goal{position:absolute;top:0;bottom:0;width:2px;background:var(--fg);opacity:.35}
+
+/* 학기 */
+.sems{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:6px}
+.sem{border:0;background:var(--tile);border-radius:10px;padding:10px 6px 9px;cursor:pointer;display:grid;gap:3px;justify-items:center;text-align:center;outline:2px solid transparent;outline-offset:1px}
+.sem:hover{background:var(--tile-hover)}
+.sem[aria-selected="true"]{background:var(--fg);color:var(--bg)}
+.sem .sl{font-family:var(--mono);font-size:12px;font-weight:600;opacity:.75}
+.sem b{font-family:var(--mono);font-size:21px;font-weight:600;line-height:1.1;font-variant-numeric:tabular-nums}
+.sem small{font-size:11px;opacity:.7}
+.sem.plan b{text-decoration:underline dotted;text-underline-offset:4px;text-decoration-thickness:2px}
+.sem.low small{color:var(--accent);opacity:1;font-weight:600}
+.sem[aria-selected="true"].low small{color:inherit}
+.semhead{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin:18px 0 4px;flex-wrap:wrap}
+.semhead .sht{display:flex;align-items:baseline;gap:10px}
+.semhead h2{margin:0;font-size:16px;font-weight:700}
+.semhead .meta{font-size:13px;color:var(--muted)}
+.semhead a{font-size:13px;font-weight:600}
+.course{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:10px;align-items:baseline;padding-block:9px;border-bottom:1px solid var(--line)}
+.course:last-child{border-bottom:0}
+.course .cn{display:flex;gap:8px;align-items:baseline;font-weight:600;min-width:0;word-break:keep-all;overflow-wrap:anywhere}
+.course .cg{font-size:12px;color:var(--muted);white-space:nowrap}
+.course .cg .blk{font-family:var(--mono);margin-right:6px}
+.course .cc{font-family:var(--mono);font-weight:600;min-width:20px;text-align:right}
+.course .flag{font-size:11px;color:var(--accent);font-weight:600;margin-left:4px}
+.course.plan .cn::after{content:"예정";font-size:11px;font-weight:600;color:var(--muted);border:1px dashed var(--muted);border-radius:4px;padding:0 5px;margin-left:2px}
+.empty{color:var(--muted);padding:22px 0;font-size:14px}
+.empty b{color:var(--fg)}
+.foot{border-top:1px solid var(--line);padding-block:16px 28px;font-size:12px;color:var(--muted);display:flex;gap:6px 18px;flex-wrap:wrap}
+
+@media (max-width:860px){
+  .hero{grid-template-columns:minmax(0,1fr)}
+  .cols{grid-template-columns:minmax(0,1fr);gap:8px}
+}
+@media (max-width:520px){
+  .big b{font-size:44px}
+  .sems{grid-template-columns:repeat(3,minmax(0,1fr))}
+  .top-act .btn{padding:0 10px}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+
+<header class="top" id="top">
+  <div class="wrap top-in">
+    <h1>졸업 학점</h1>
+    <span class="who" id="who"></span>
+    <div class="top-act">
+      <a class="btn" id="toSugang" href="../sugang-2027-1/">예비수강신청</a>
+      <button class="btn" id="pick" type="button" hidden>다른 파일</button>
+      <button class="btn" id="clear" type="button" hidden>지우기</button>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+  <section class="drop" id="drop">
+    <svg width="40" height="40" viewBox="0 0 40 40" fill="none" aria-hidden="true"><path d="M11 5h13l8 8v22H11z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M24 5v8h8" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M21 31V19m0 0l-4.5 4.5M21 19l4.5 4.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+    <h2>수강신청 현황 파일을 끌어다 놓기</h2>
+    <button class="btn solid" id="pick2" type="button">파일 고르기</button>
+    <p id="dropMsg">파일은 이 브라우저 안에서만 읽어요</p>
+  </section>
+
+  <section id="result" hidden>
+    <div class="hero">
+      <div>
+        <div class="lbl">교과 이수 학점</div>
+        <div class="big"><b id="subj">0</b><span class="plus" id="subjPlan"></span><span class="of">/ <span id="subjGoal">174</span></span></div>
+        <div class="bar" id="subjBar"><i class="t"></i><i class="p"></i></div>
+        <div class="sub" id="allLine"></div>
+      </div>
+      <div class="left">
+        <div class="lbl" id="needLbl">남은 것</div>
+        <div class="need" id="need"></div>
+        <div class="legend" id="legend"><span><i></i>이수</span><span><i class="p"></i>예정 (예비수강신청)</span></div>
+      </div>
+    </div>
+
+    <div class="cols">
+      <div>
+        <div class="h3">교과군별 최소 학점</div>
+        <div id="reqs"></div>
+      </div>
+      <div>
+        <div class="h3">학기별</div>
+        <div class="sems" id="sems" role="tablist"></div>
+        <div id="semBody"></div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="wrap foot" id="foot">
+  <span>기준: 30기, 31기 2022 교육과정 졸업 요건</span>
+  <span>창체 18학점은 자동 반영</span>
+  <span>파일은 이 브라우저 안에서만 읽어요</span>
+</footer>
+<input type="file" id="file" accept=".xls,.xlsx,.htm,.html" hidden>
+<div class="overlay" id="overlay" hidden>놓으면 바로 계산해요</div>
+
+<script>
+// 졸업 요건 (30기, 31기 2022 교육과정 졸업 요건 안내 + 편제표). 학교 기준이 바뀌면 여기만 고친다.
+const RULES = {
+  totalSubject: 174,
+  creative: 18,                                   // 창체 1학년 8, 2학년 6, 3학년 4
+  groups: [
+    { key: '국어', css: 'kor',  min: 8 },
+    { key: '수학', css: 'math', min: 8 },
+    { key: '영어', css: 'eng',  min: 8 },
+    { key: '사회', css: 'soc',  min: 14, sub: '역사, 도덕 포함' },
+    { key: '과학', css: 'sci',  min: 10 },
+    { key: '체육', css: 'pe',   min: 10 },
+    { key: '예술', css: 'art',  min: 6,  sub: '음악, 미술' },
+    { key: '기타', css: 'etc',  min: 12, sub: '정보, 제2외국어, 한문, 교양' },
+  ],
+  kme: { cap: 81, keys: ['국어', '수학', '영어'], excessRatio: 0.5 },   // 174 초과분의 절반만큼 상한이 늘어남
+  semMin: [30, 30, 29, 29, 28, 28],
+};
+const PLAN = { year: 2027, term: 1, key: 'sugang-2027-1/export', url: '../sugang-2027-1/' };
+const KEY = 'grad-credits/v1';
+const SEM_LABEL = ['1-1', '1-2', '2-1', '2-2', '3-1', '3-2'];
+const GCSS = Object.fromEntries(RULES.groups.map(g => [g.key, g.css]));
+
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const store = {
+  get(k) { try { return JSON.parse(localStorage.getItem(k)) || null; } catch (e) { return null; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} },
+  del(k) { try { localStorage.removeItem(k); } catch (e) {} },
+};
+
+/* ---------- 파일 읽기 ---------- */
+// 교과구분 → 졸업 요건 교과군. 'CA'(동아리, 창체)와 null(겨울학기 등)은 교과 학점에서 뺀다.
+function groupOf(cat, en) {
+  const c = String(cat || '').replace(/\s/g, '');
+  if (['국어', '수학', '영어', '사회', '과학', '체육', '예술'].includes(c)) return c;
+  if (/역사|도덕|윤리/.test(c)) return '사회';
+  if (/음악|미술/.test(c)) return '예술';
+  if (/정보|기술|가정|외국어|한문|교양/.test(c)) return '기타';
+  if (/겨울/.test(c)) return null;
+  if (/^CA$/i.test(String(en || '').trim()) || /운동|학술|봉사|예능|동아리|창체|자율/.test(c)) return 'CA';
+  return '?';
+}
+
+function fromGrid(grid) {
+  const clean = v => String(v ?? '').replace(/\s+/g, ' ').trim();
+  const hi = grid.findIndex(r => r.map(clean).includes('과목명') && r.map(clean).includes('단위'));
+  if (hi < 0) throw new Error('수강신청 현황 표를 찾지 못했어요');
+  const head = grid[hi].map(clean);
+  const col = name => head.indexOf(name);
+  const C = { y: col('수강년도'), s: col('수강학기'), g: col('신청학년'), b: col('모듈'), cat: col('교과구분'),
+              n: col('과목명'), en: col('과목명(en)'), c: col('단위'), name: col('학생명'), id: col('학번') };
+  for (const k of ['y', 's', 'g', 'cat', 'n', 'c']) if (C[k] < 0) throw new Error('필요한 열이 없어요: ' + k);
+  let student = '', sid = '';
+  const rows = [], seen = new Set();
+  for (const raw of grid.slice(hi + 1)) {
+    const r = raw.map(clean);
+    if (!r[C.n]) continue;
+    if (!student && C.name >= 0 && r[C.name]) { student = r[C.name]; sid = C.id >= 0 ? r[C.id] : ''; }
+    const row = { y: +r[C.y], s: +r[C.s], g: +r[C.g], b: C.b >= 0 ? r[C.b] : '', cat: r[C.cat], n: r[C.n],
+                  c: parseFloat(r[C.c]) || 0, grp: groupOf(r[C.cat], C.en >= 0 ? r[C.en] : '') };
+    const k = [row.y, row.s, row.b, row.n].join('|');
+    if (seen.has(k)) continue;
+    seen.add(k);
+    rows.push(row);
+  }
+  if (!rows.length) throw new Error('과목이 한 줄도 없어요');
+  return { student, sid, rows };
+}
+
+function decode(buf) {
+  const head = new TextDecoder('latin1').decode(buf.slice(0, 3000)).toLowerCase();
+  const enc = /charset\s*=\s*["']?(euc-kr|ks_c_5601|cp949|x-windows-949)/.test(head) ? 'euc-kr' : 'utf-8';
+  let text = new TextDecoder(enc).decode(buf);
+  if (enc === 'utf-8' && (text.match(/�/g) || []).length > 5) text = new TextDecoder('euc-kr').decode(buf);
+  return text;
+}
+
+let xlsxLib = null;
+function loadXLSX() {
+  if (window.XLSX) return Promise.resolve(window.XLSX);
+  if (xlsxLib) return xlsxLib;
+  xlsxLib = new Promise((ok, no) => {
+    const s = document.createElement('script');
+    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+    s.onload = () => ok(window.XLSX); s.onerror = () => no(new Error('엑셀 읽기 도구를 못 불러왔어요'));
+    document.head.appendChild(s);
+  });
+  return xlsxLib;
+}
+
+async function readFile(file) {
+  const buf = new Uint8Array(await file.arrayBuffer());
+  const zip = buf[0] === 0x50 && buf[1] === 0x4B;                       // .xlsx
+  const ole = buf[0] === 0xD0 && buf[1] === 0xCF && buf[2] === 0x11;   // 진짜 .xls
+  let grid;
+  if (zip || ole) {
+    const XLSX = await loadXLSX();
+    const wb = XLSX.read(buf, { type: 'array' });
+    grid = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, raw: false, defval: '' });
+  } else {                                                              // 학교 시스템이 주는 .xls는 사실 HTML 표
+    const doc = new DOMParser().parseFromString(decode(buf), 'text/html');
+    grid = [...doc.querySelectorAll('tr')].map(tr => [...tr.children].map(td => td.textContent));
+  }
+  return fromGrid(grid);
+}
+
+/* ---------- 계산 ---------- */
+const semIndex = r => (r.g - 1) * 2 + (r.s - 1);
+
+function planInfo(T) {
+  const own = T.rows.filter(r => r.s === 1 || r.s === 2);
+  if (!own.length) return { grade: 0, list: [], fromFile: false };
+  const maxY = Math.max(...own.map(r => r.y));
+  const gAtMax = Math.max(...own.filter(r => r.y === maxY).map(r => r.g));
+  const grade = gAtMax + (PLAN.year - maxY);
+  const fromFile = own.some(r => r.y === PLAN.year && r.s === PLAN.term);
+  if (fromFile || grade < 1 || grade > 3) return { grade, list: [], fromFile };
+  const ex = store.get(PLAN.key);
+  const list = (ex && ex.grades && ex.grades[grade]) || [];
+  return { grade, list, fromFile, sem: (grade - 1) * 2 + (PLAN.term - 1) };
+}
+
+function calc(T) {
+  const P = planInfo(T);
+  const taken = T.rows.filter(r => (r.s === 1 || r.s === 2) && r.c > 0 && r.grp && r.grp !== 'CA')
+    .map(r => ({ ...r, grp: r.grp === '?' ? '기타' : r.grp, flag: r.grp === '?', sem: semIndex(r) }));
+  const planned = P.list.map(p => ({ n: p.n, b: p.b, c: p.c, grp: p.grp, sem: P.sem, plan: true }));
+  const sum = (list, f = () => true) => list.filter(f).reduce((s, r) => s + r.c, 0);
+  const g = {};
+  for (const gr of RULES.groups) g[gr.key] = { t: sum(taken, r => r.grp === gr.key), p: sum(planned, r => r.grp === gr.key), min: gr.min };
+  const subjT = sum(taken), subjP = sum(planned), subj = subjT + subjP;
+  const semT = SEM_LABEL.map((_, i) => sum(taken, r => r.sem === i));
+  const semP = SEM_LABEL.map((_, i) => sum(planned, r => r.sem === i));
+  const kme = RULES.kme.keys.reduce((s, k) => s + g[k].t + g[k].p, 0);
+  const cap = RULES.kme.cap + Math.floor(Math.max(0, subj - RULES.totalSubject) * RULES.kme.excessRatio);
+  const need = [];
+  if (subj < RULES.totalSubject) need.push(['교과', RULES.totalSubject - subj]);
+  for (const gr of RULES.groups) { const x = g[gr.key]; if (x.t + x.p < x.min) need.push([gr.key, x.min - x.t - x.p]); }
+  if (kme > cap) need.push(['국수영 초과', kme - cap]);
+  return { P, taken, planned, g, subjT, subjP, subj, semT, semP, kme, cap, need };
+}
+
+// 예비수강신청 화면이 읽어 가는 요약 (이수한 것만, 예정은 저쪽이 직접 더한다)
+function writeSummary(T, M) {
+  const g = {};
+  for (const k in M.g) g[k] = M.g[k].t;
+  const prev = store.get(KEY) || {};
+  store.set(KEY, { ...prev, summary: {
+    planYear: PLAN.year, planTerm: PLAN.term, planGrade: M.P.fromFile ? 0 : M.P.grade,
+    taken: g, subject: M.subjT,
+    rules: { totalSubject: RULES.totalSubject, groups: RULES.groups.map(x => [x.key, x.min]),
+             kmeCap: RULES.kme.cap, kmeKeys: RULES.kme.keys, kmeExcessRatio: RULES.kme.excessRatio },
+  } });
+}
+
+/* ---------- 화면 ---------- */
+let T = null, selSem = null;
+
+function render() {
+  const has = !!T;
+  $('drop').hidden = has; $('result').hidden = !has;
+  $('pick').hidden = !has; $('clear').hidden = !has;
+  if (!has) { $('who').innerHTML = ''; return; }
+  const M = calc(T);
+  writeSummary(T, M);
+  $('who').innerHTML = `<b>${esc(T.student || '')}</b>${esc(T.sid || '')}`;
+
+  // 합계
+  const goal = RULES.totalSubject;
+  $('subj').textContent = M.subjT;
+  $('subjPlan').textContent = M.subjP ? '+' + M.subjP : '';
+  $('subjGoal').textContent = goal;
+  const tw = Math.min(100, M.subjT / goal * 100), pw = Math.min(100 - tw, M.subjP / goal * 100);
+  const bar = $('subjBar');
+  bar.classList.toggle('ok', M.subj >= goal);
+  bar.children[0].style.width = tw + '%'; bar.children[1].style.width = pw + '%';
+  const all = M.subj + RULES.creative, allGoal = goal + RULES.creative;
+  $('allLine').innerHTML = `창체 ${RULES.creative} 포함 <span class="num">${all}</span> / ${allGoal}`;
+  $('legend').hidden = !M.planned.length;
+  $('needLbl').textContent = M.planned.length ? `남은 것 (예정 ${SEM_LABEL[M.P.sem]} 포함)` : '남은 것';
+  $('need').innerHTML = M.need.length
+    ? M.need.map(([k, v]) => `<span>${esc(k)}<span class="num">${v}</span></span>`).join('')
+    : `<span class="done">졸업 요건 모두 충족</span>`;
+
+  // 교과군
+  const rowHTML = (label, sub, css, t, p, goalV, st, isCap) => {
+    const max = Math.max(goalV, t + p);
+    const twr = t / max * 100, pwr = p / max * 100, gl = goalV / max * 100;
+    return `<div class="req" style="--gc:var(--g-${css})">`
+      + `<span class="nm"><i class="dot"></i>${label}${sub ? `<small>${sub}</small>` : ''}</span>`
+      + `<span class="val">${t}${p ? `<span class="pl"> +${p}</span>` : ''}<span class="of"> / ${goalV}${isCap ? ' 이하' : ''}</span></span>`
+      + `<span class="st ${st[0]}">${st[1]}</span>`
+      + `<div class="bar"><i class="t" style="width:${twr}%"></i><i class="p" style="width:${pwr}%"></i>${isCap ? '' : `<span class="goal" style="left:calc(${gl}% - 1px)"></span>`}</div>`
+      + `</div>`;
+  };
+  let html = RULES.groups.map(gr => {
+    const x = M.g[gr.key], cur = x.t + x.p;
+    return rowHTML(gr.key, gr.sub, gr.css, x.t, x.p, gr.min, cur >= gr.min ? ['ok', '충족'] : ['no', `${gr.min - cur} 더`]);
+  }).join('');
+  const kt = RULES.kme.keys.reduce((s, k) => s + M.g[k].t, 0), kp = M.kme - kt;
+  html += rowHTML('국수영 합계', '상한', 'kor', kt, kp, M.cap, M.kme <= M.cap ? ['ok', '충족'] : ['no', `${M.kme - M.cap} 초과`], true)
+    .replace('style="--gc:var(--g-kor)"', 'style="--gc:var(--muted)"');
+  $('reqs').innerHTML = html;
+
+  // 학기
+  const lastTaken = Math.max(-1, ...M.taken.map(r => r.sem));
+  if (selSem == null || selSem > 5) selSem = M.planned.length ? M.P.sem : Math.max(0, lastTaken);
+  $('sems').innerHTML = SEM_LABEL.map((l, i) => {
+    const t = M.semT[i], p = M.semP[i], v = t + p;
+    const isPlan = !t && p > 0, low = v > 0 && v < RULES.semMin[i];
+    return `<button class="sem${isPlan ? ' plan' : ''}${low ? ' low' : ''}" role="tab" data-i="${i}" aria-selected="${i === selSem}" type="button">`
+      + `<span class="sl">${l}</span><b>${v || '—'}</b><small>최소 ${RULES.semMin[i]}</small></button>`;
+  }).join('');
+  renderSem(M);
+}
+
+function renderSem(M) {
+  const i = selSem;
+  const list = [...M.taken.filter(r => r.sem === i), ...M.planned.filter(r => r.sem === i)];
+  const isPlanSem = M.P.sem === i && !M.P.fromFile;
+  const total = list.reduce((s, r) => s + r.c, 0);
+  const [y, h] = SEM_LABEL[i].split('-');
+  let head = `<div class="semhead"><span class="sht"><h2>${y}학년 ${h}학기</h2>`
+    + (list.length ? `<span class="meta">${list.length}과목 <span class="num">${total}</span>학점</span>` : '') + `</span>`
+    + (isPlanSem ? `<a href="${PLAN.url}#g${M.P.grade}">예비수강신청에서 고르기</a>` : '')
+    + `</div>`;
+  if (!list.length) {
+    let msg;
+    if (isPlanSem) msg = '예비수강신청에서 고른 과목이 아직 없어요';
+    else if (i > Math.max(-1, ...M.taken.map(r => r.sem))) {
+      msg = M.need.length
+        ? '남은 것: ' + M.need.map(([k, v]) => `<b>${esc(k)} ${v}</b>`).join(', ')
+        : '졸업 요건을 이미 다 채웠어요';
+    } else msg = '이 학기 기록이 없어요';
+    $('semBody').innerHTML = head + `<div class="empty">${msg}</div>`;
+    return;
+  }
+  const order = Object.fromEntries(RULES.groups.map((g, k) => [g.key, k]));
+  list.sort((a, b) => (a.plan ? 1 : 0) - (b.plan ? 1 : 0) || order[a.grp] - order[b.grp]);
+  $('semBody').innerHTML = head + list.map(r =>
+    `<div class="course${r.plan ? ' plan' : ''}" style="--gc:var(--g-${GCSS[r.grp] || 'etc'})">`
+    + `<span class="cn"><i class="dot"></i>${esc(r.n)}${r.flag ? `<span class="flag" title="교과구분: ${esc(r.cat)}">기타로 셈</span>` : ''}</span>`
+    + `<span class="cg">${r.b ? `<span class="blk">${esc(r.b)}</span>` : ''}${esc(r.grp)}</span>`
+    + `<span class="cc">${r.c}</span></div>`).join('');
+}
+
+/* ---------- 입력 ---------- */
+async function take(file) {
+  if (!file) return;
+  try {
+    const t = await readFile(file);
+    T = t; selSem = null;
+    store.set(KEY, { file: file.name, loadedAt: new Date().toISOString(), student: t.student, sid: t.sid, rows: t.rows });
+    $('dropMsg').className = ''; $('dropMsg').textContent = '파일은 이 브라우저 안에서만 읽어요';
+    render(); window.scrollTo(0, 0);
+  } catch (e) {
+    T = null; render();
+    $('dropMsg').className = 'err'; $('dropMsg').textContent = e.message || '파일을 읽지 못했어요';
+  }
+}
+const openPicker = () => { $('file').value = ''; $('file').click(); };
+$('pick').addEventListener('click', openPicker);
+$('pick2').addEventListener('click', openPicker);
+$('file').addEventListener('change', e => take(e.target.files[0]));
+
+let depth = 0;
+const isFileDrag = e => [...(e.dataTransfer?.types || [])].includes('Files');
+window.addEventListener('dragenter', e => { if (!isFileDrag(e)) return; e.preventDefault(); depth++; $('overlay').hidden = false; document.body.classList.add('dragging'); });
+window.addEventListener('dragover', e => { if (isFileDrag(e)) e.preventDefault(); });
+window.addEventListener('dragleave', e => { if (!isFileDrag(e)) return; if (--depth <= 0) { depth = 0; $('overlay').hidden = true; document.body.classList.remove('dragging'); } });
+window.addEventListener('drop', e => {
+  if (!isFileDrag(e)) return;
+  e.preventDefault(); depth = 0; $('overlay').hidden = true; document.body.classList.remove('dragging');
+  take(e.dataTransfer.files[0]);
+});
+
+$('sems').addEventListener('click', e => {
+  const b = e.target.closest('.sem'); if (!b) return;
+  selSem = +b.dataset.i; render();
+});
+
+let armT;
+$('clear').addEventListener('click', e => {
+  const btn = e.currentTarget;
+  if (!btn.classList.contains('arm')) {
+    btn.classList.add('arm'); btn.textContent = '한 번 더';
+    clearTimeout(armT); armT = setTimeout(() => { btn.classList.remove('arm'); btn.textContent = '지우기'; }, 2500);
+    return;
+  }
+  clearTimeout(armT); btn.classList.remove('arm'); btn.textContent = '지우기';
+  store.del(KEY); T = null; render();
+});
+
+// 예비수강신청을 다른 탭에서 고치면 바로 다시 계산
+window.addEventListener('storage', e => { if (e.key === PLAN.key && T) render(); });
+window.addEventListener('pageshow', () => { if (T) render(); });
+
+const saved = store.get(KEY);
+if (saved && Array.isArray(saved.rows) && saved.rows.length) T = { student: saved.student, sid: saved.sid, rows: saved.rows };
+render();
+</script>
+</html>
